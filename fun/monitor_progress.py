@@ -3,7 +3,7 @@ import json
 import time
 import os
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, date
 
 load_dotenv()
 
@@ -60,10 +60,10 @@ def send_notification(data, is_update=False):
     # Format the message
     message = (
         f"{name} (🏆 #{rank})\n\n"
-        f"✨ ViBe: {vibe}\n"
-        f"📚 Case Study: {case_study}\n"
-        f"❤️ Health: {hp}\n"
-        f"🚀 Overall: {overall}"
+        f"✨ ViBe: {vibe}%\n"
+        f"📚 Case Study: {case_study}%\n"
+        f"❤️ Health Points: {hp}\n"
+        f"🚀 Overall: {overall}%"
     )
     
     priority = "high" if is_update else "default"
@@ -79,6 +79,45 @@ def send_notification(data, is_update=False):
         print(f"Notification sent to {NTFY_URL}")
     except Exception as e:
         print(f"Error sending notification: {e}")
+
+def check_attendance_reminder(last_state):
+    """
+    Checks if an attendance reminder should be sent.
+    Notification should be sent:
+    - On weekdays (Mon-Sat, i.e., 0-5)
+    - Between 6 PM and 7 PM (hour == 18)
+    - If not already sent today
+    """
+    now = datetime.now()
+    
+    # Sunday is 6
+    if now.weekday() == 6:
+        return False
+        
+    # Check time window (6 PM - 6:59 PM)
+    if now.hour != 18:
+        return False
+        
+    today_str = str(date.today())
+    last_reminder = last_state.get("last_attendance_reminder") if last_state else None
+    
+    if last_reminder == today_str:
+        return False
+        
+    # Send notification
+    try:
+        headers = {
+            "Title": "Attendance Reminder",
+            "Priority": "high",
+            "Tags": "calendar,memo"
+        }
+        message = "Don't forget to fill the attendance form today!"
+        requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers)
+        print(f"Attendance reminder sent to {NTFY_URL}")
+        return True
+    except Exception as e:
+        print(f"Error sending attendance reminder: {e}")
+        return False
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -119,6 +158,15 @@ def main():
         else:
             print("No changes detected, but sending heartbeat.")
             send_notification(current_data, is_update=False)
+
+        # Check for attendance reminder
+        if check_attendance_reminder(last_state):
+            current_data["last_attendance_reminder"] = str(date.today())
+            save_state(current_data)
+        elif last_state and "last_attendance_reminder" in last_state:
+            # Preserve the last reminder date if we didn't send a new one
+            current_data["last_attendance_reminder"] = last_state["last_attendance_reminder"]
+            save_state(current_data)
 
     else:
         print("User not found or API error.")
