@@ -26,6 +26,8 @@ jobs:
         pip install requests python-dotenv
 
     - name: Run Monitor Script
+      env:
+        API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
       run: |
         cd fun
         python monitor_progress.py
