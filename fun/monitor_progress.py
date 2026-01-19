@@ -116,10 +116,12 @@ def main():
         
         if has_changed:
             print("Change detected or first run!")
-            send_notification(current_data, is_update=(last_state is not None))
+            send_notification(current_data, is_update=True)
             save_state(current_data)
         else:
-            print("No changes detected.")
+            print("No changes detected, but sending heartbeat.")
+            send_notification(current_data, is_update=False)
+
     else:
         print("User not found or API error.")
 
