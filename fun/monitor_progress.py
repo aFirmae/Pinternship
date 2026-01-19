@@ -2,7 +2,10 @@ import requests
 import json
 import time
 import os
+from dotenv import load_dotenv
 from datetime import datetime
+
+load_dotenv()
 
 # API Configuration
 API_URL = os.getenv("API_ENDPOINT")
@@ -44,35 +47,30 @@ def fetch_data():
         return None
 
 def send_notification(data, is_update=False):
-    # Format the message
-    # Nilashis Saha
-    # Vibe Progress - x amount
-    # Case Study Progress - x amount
-    # Health Points - x points
-    # Overall Progress - x amount
-    
     name = data.get("Name", "Unknown")
+    rank = data.get("Rank", "N/A")
     vibe = data.get("Vibe Progress", 0)
     case_study = data.get("Case Study Progress", 0)
     hp = data.get("Health Points", 0)
     if hp == "": hp = 0
     overall = data.get("Overall Progress", 0)
-    rank = data.get("Rank", "N/A")
     
     title = "Internship Progress Update" if is_update else "Current Internship Progress"
     
+    # Format the message
     message = (
-        f"{name}\n"
-        f"Vibe Progress: {vibe}\n"
-        f"Case Study Progress: {case_study}\n"
-        f"Health Points: {hp}\n"
-        f"Overall Progress: {overall}\n"
-        f"(Rank: {rank})"
+        f"{name} (🏆 #{rank})\n\n"
+        f"✨ ViBe: {vibe}\n"
+        f"📚 Case Study: {case_study}\n"
+        f"❤️ Health: {hp}\n"
+        f"🚀 Overall: {overall}"
     )
+    
+    priority = "high" if is_update else "default"
     
     headers = {
         "Title": title,
-        "Priority": "default" if is_update else "low",
+        "Priority": priority,
         "Tags": "chart_with_upwards_trend,rocket"
     }
     
