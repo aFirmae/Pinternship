@@ -46,7 +46,17 @@ def fetch_data():
         print(f"Error fetching data: {e}")
         return None
 
+def is_quiet_hours():
+    """Returns True if current time is between 1 AM and 6 AM."""
+    now = datetime.now()
+    # 01:00 to 05:59 (inclusive)
+    return 1 <= now.hour < 6
+
 def send_notification(data, is_update=False):
+    if is_quiet_hours():
+        print("Quiet hours active. Skipping notification.")
+        return
+
     name = data.get("Name", "Unknown")
     rank = data.get("Rank", "N/A")
     vibe = data.get("Vibe Progress", 0)
@@ -69,7 +79,7 @@ def send_notification(data, is_update=False):
     priority = "high" if is_update else "default"
     
     headers = {
-        "Title": title,
+        "Title": title.encode('utf-8'),
         "Priority": priority,
         "Tags": "chart_with_upwards_trend,rocket"
     }
@@ -79,6 +89,61 @@ def send_notification(data, is_update=False):
         print(f"Notification sent to {NTFY_URL}")
     except Exception as e:
         print(f"Error sending notification: {e}")
+
+def send_hp_notification(new_val, old_val):
+    try:
+        new_val_float = float(new_val)
+        old_val_float = float(old_val)
+        diff = new_val_float - old_val_float
+    except ValueError:
+        diff = 0
+
+    if diff > 0:
+        title = "❤️ Health Points Increased! 🎉"
+        message = f"Great work! Your Health Points went up by {diff:g} to {new_val}. Keep maintaining the streak!"
+        tags = "tada,chart_with_upwards_trend, heart"
+        priority = "default"
+    elif diff < 0:
+        title = "❤️ Health Points Dropped 📉"
+        message = f"Don't worry, you can recover them! Your Health Points dropped by {abs(diff):g} to {new_val}. Check what happened and bounce back!"
+        tags = "warning,muscle,heart"
+        priority = "high"
+    else:
+        # Should not happen if called correctly on change, but fallback
+        title = "Health Points Update"
+        message = f"❤️ Health Points updated: {new_val}"
+        tags = "heart"
+        priority = "default"
+
+    headers = {
+        "Title": title.encode('utf-8'),
+        "Priority": priority,
+        "Tags": tags
+    }
+    
+    try:
+        requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers)
+        print(f"HP Notification sent to {NTFY_URL}")
+    except Exception as e:
+        print(f"Error sending HP notification: {e}")
+
+def send_stagnation_notification():
+    if is_quiet_hours():
+        print("Quiet hours active. Skipping stagnation notification.")
+        return
+
+    headers = {
+        "Title": "Keep Progressing!".encode('utf-8'),
+        "Priority": "default",
+        "Tags": "muscle,warning"
+    }
+    message = "It's been 24 hours without progress on ViBe or Case Study. Keep going!"
+    
+    try:
+        requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers)
+        print(f"Stagnation Notification sent to {NTFY_URL}")
+    except Exception as e:
+        print(f"Error sending stagnation notification: {e}")
 
 def check_attendance_reminder(last_state):
     """
@@ -139,34 +204,87 @@ def main():
     
     if current_data:
         last_state = load_state()
+        if last_state is None:
+            last_state = {}
+
+        # 1. Check for Progress Changes (Vibe, Case Study, Overall)
+        progress_changed = False
+        # Initialize loop_vars from last_state, defaulting to current time if new
+        now_ts = time.time()
         
-        # Check for changes
-        has_changed = False
-        if last_state:
-            # Compare critical fields
-            for key in ["Vibe Progress", "Case Study Progress", "Health Points", "Overall Progress"]:
-                if str(current_data.get(key)) != str(last_state.get(key)):
-                    has_changed = True
-                    break
-        else:
-            has_changed = True # First run
+        # Keys to monitor for main notification
+        monitor_keys = ["Vibe Progress", "Case Study Progress", "Overall Progress"]
         
-        if has_changed:
-            print("Change detected or first run!")
+        for key in monitor_keys:
+            if str(current_data.get(key)) != str(last_state.get(key)):
+                progress_changed = True
+                break
+        
+        if progress_changed:
+            print("Progress change detected!")
             send_notification(current_data, is_update=True)
-            save_state(current_data)
+            # Update timestamps for specific progress metrics
+            if str(current_data.get("Vibe Progress")) != str(last_state.get("Vibe Progress")):
+                current_data["last_vibe_change_ts"] = now_ts
+            else:
+                current_data["last_vibe_change_ts"] = last_state.get("last_vibe_change_ts", now_ts)
+                
+            if str(current_data.get("Case Study Progress")) != str(last_state.get("Case Study Progress")):
+                current_data["last_casestudy_change_ts"] = now_ts
+            else:
+                current_data["last_casestudy_change_ts"] = last_state.get("last_casestudy_change_ts", now_ts)
         else:
-            print("No changes detected, but sending heartbeat.")
+            print("No progress changes.")
+            # Carry over timestamps
+            current_data["last_vibe_change_ts"] = last_state.get("last_vibe_change_ts", now_ts)
+            current_data["last_casestudy_change_ts"] = last_state.get("last_casestudy_change_ts", now_ts)
+            
             send_notification(current_data, is_update=False)
 
-        # Check for attendance reminder
+        # 2. Check for Health Points Change (Separate Notification)
+        if str(current_data.get("Health Points")) != str(last_state.get("Health Points")):
+            print("Health Points change detected!")
+            send_hp_notification(current_data.get("Health Points"), last_state.get("Health Points", 0))
+
+        # 3. Check for Stagnation (24h no progress on Vibe OR Case Study)
+        last_vibe_ts = current_data.get("last_vibe_change_ts", now_ts)
+        last_casestudy_ts = current_data.get("last_casestudy_change_ts", now_ts)
+        
+        hours_since_vibe = (now_ts - last_vibe_ts) / 3600
+        hours_since_casestudy = (now_ts - last_casestudy_ts) / 3600
+        
+        if hours_since_vibe >= 24 and hours_since_casestudy >= 24:
+            # Check if we should suppress due to 0 or 100 values
+            try:
+                vibe_val = float(current_data.get("Vibe Progress", 0))
+                case_val = float(current_data.get("Case Study Progress", 0))
+                
+                # Ignore if progress is 0 (not started) or 100 (completed)
+                if vibe_val in [0, 100] or case_val in [0, 100]:
+                     pass 
+                else:
+                    # Check if we already sent a stagnation warning recently
+                    last_stagnation_sent = last_state.get("last_stagnation_sent_ts", 0)
+                    if (now_ts - last_stagnation_sent) > 24 * 3600: # Send once every 24h
+                        print("Stagnation detected (24h+). Sending reminder.")
+                        send_stagnation_notification()
+                        current_data["last_stagnation_sent_ts"] = now_ts
+                    else:
+                        current_data["last_stagnation_sent_ts"] = last_stagnation_sent
+            except ValueError:
+                print("Error parsing progress values for stagnation check")
+        else:
+            current_data["last_stagnation_sent_ts"] = last_state.get("last_stagnation_sent_ts", 0)
+
+
+        # 4. Check Attendance
         if check_attendance_reminder(last_state):
             current_data["last_attendance_reminder"] = str(date.today())
-            save_state(current_data)
         elif last_state and "last_attendance_reminder" in last_state:
-            # Preserve the last reminder date if we didn't send a new one
             current_data["last_attendance_reminder"] = last_state["last_attendance_reminder"]
-            save_state(current_data)
+
+        # Save new state
+        save_state(current_data)
 
     else:
         print("User not found or API error.")
