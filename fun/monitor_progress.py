@@ -9,6 +9,7 @@ load_dotenv()
 
 # API Configuration
 API_URL = os.getenv("API_ENDPOINT")
+HP_URL = os.getenv("HP_ENDPOINT")
 TARGET_NAME = "Nilashis Saha"
 
 # Notification Configuration (NTFY.sh)
@@ -46,23 +47,47 @@ def fetch_data():
         print(f"Error fetching data: {e}")
         return None
 
-def is_quiet_hours():
-    """Returns True if current time is between 1 AM and 6 AM."""
-    now = datetime.now()
-    # 01:00 to 05:59 (inclusive)
-    return 1 <= now.hour < 6
+def fetch_hp_data():
+    try:
+        response = requests.get(HP_URL, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Navigate to leaderboard list
+        records = data.get('leaderboard', [])
+            
+        for item in records:
+            if TARGET_NAME.lower() in str(item.get('name', '')).lower():
+                # Map keys to avoid collision with main progress data
+                return {
+                    "hp_rank": item.get('rank', 'N/A'),
+                    "currentHP": item.get('currentHP', 100),
+                    "hp_status": item.get('status', 'SAFE'),
+                    "baseHP": item.get('baseHP', 100)
+                }
+        return None
+        
+    except Exception as e:
+        print(f"Error fetching HP data: {e}")
+        return None
+        
 
 def send_notification(data, is_update=False):
-    if is_quiet_hours():
-        print("Quiet hours active. Skipping notification.")
-        return
-
     name = data.get("Name", "Unknown")
+    # Main progress rank
     rank = data.get("Rank", "N/A")
     vibe = data.get("Vibe Progress", 0)
     case_study = data.get("Case Study Progress", 0)
-    hp = data.get("Health Points", 0)
+    
+    # Use currentHP from new endpoint if available, else fallback
+    hp = data.get("currentHP", data.get("Health Points", 0))
     if hp == "": hp = 0
+    # Round HP if it's a float
+    try:
+        hp = round(float(hp), 2)
+    except:
+        pass
+        
     overall = data.get("Overall Progress", 0)
     
     title = "Internship Progress Update" if is_update else "Current Internship Progress"
@@ -90,48 +115,74 @@ def send_notification(data, is_update=False):
     except Exception as e:
         print(f"Error sending notification: {e}")
 
-def send_hp_notification(new_val, old_val):
-    try:
-        new_val_float = float(new_val)
-        old_val_float = float(old_val)
-        diff = new_val_float - old_val_float
-    except ValueError:
-        diff = 0
+def send_hp_notification(new_data, old_data):
+    # Extract values with defaults: HP=100
+    new_hp = float(new_data.get("currentHP", 100))
+    old_hp = float(old_data.get("currentHP", 100))
+    
+    # Default status SAFE
+    new_status = new_data.get("hp_status", "SAFE")
+    old_status = old_data.get("hp_status", "SAFE")
+    
+    # HP Rank
+    rank = new_data.get("hp_rank", "N/A")
+    
+    hp_diff = new_hp - old_hp
+    
+    messages = []
+    tags = []
+    priority = "default"
+    title = "Health Points Update"
 
-    if diff > 0:
-        title = "❤️ Health Points Increased! 🎉"
-        message = f"Great work! Your Health Points went up by {diff:g} to {new_val}. Keep maintaining the streak!"
-        tags = "tada,chart_with_upwards_trend, heart"
-        priority = "default"
-    elif diff < 0:
-        title = "❤️ Health Points Dropped 📉"
-        message = f"Don't worry, you can recover them! Your Health Points dropped by {abs(diff):g} to {new_val}. Check what happened and bounce back!"
-        tags = "warning,muscle,heart"
+    # Analyze HP Change
+    if hp_diff > 0:
+        messages.append(f"❤️ HP Increased by {hp_diff:g}! Current: {new_hp}")
+        tags.append("chart_with_upwards_trend")
+        tags.append("tada")
+    elif hp_diff < 0:
+        messages.append(f"💔 HP Dropped by {abs(hp_diff):g}. Current: {new_hp}")
+        tags.append("chart_with_downwards_trend")
+        messages.append("Don't give up! Bounce back!")
         priority = "high"
-    else:
-        # Should not happen if called correctly on change, but fallback
-        title = "Health Points Update"
-        message = f"❤️ Health Points updated: {new_val}"
-        tags = "heart"
-        priority = "default"
+        
+    # Analyze Status Change
+    if new_status != old_status:
+        messages.append(f"Status changed from {old_status} to {new_status}")
+        if new_status == "SAFE":
+            messages.append("You are back in the SAFE zone! Keep it up! 🛡️")
+            tags.append("shield")
+        elif new_status == "UNSAFE":
+            messages.append("⚠️ Warning: You have entered the UNSAFE zone!")
+            tags.append("warning")
+            priority = "high"
+        else:
+             tags.append("information_source")
 
+    if not messages:
+        if str(new_data.get('hp_rank')) != str(old_data.get('hp_rank')):
+             messages.append("Rank Updated.")
+        else:
+             return
+
+    # Construct final message
+    full_message = f"(HP Rank: #{rank})\n" + "\n".join(messages)
+    
+    # Deduplicate tags
+    final_tags = ",".join(list(set(tags))) if tags else "heart"
+    
     headers = {
         "Title": title.encode('utf-8'),
         "Priority": priority,
-        "Tags": tags
+        "Tags": final_tags
     }
     
     try:
-        requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers)
+        requests.post(NTFY_URL, data=full_message.encode('utf-8'), headers=headers)
         print(f"HP Notification sent to {NTFY_URL}")
     except Exception as e:
         print(f"Error sending HP notification: {e}")
 
 def send_stagnation_notification():
-    if is_quiet_hours():
-        print("Quiet hours active. Skipping stagnation notification.")
-        return
-
     headers = {
         "Title": "Keep Progressing!".encode('utf-8'),
         "Priority": "default",
@@ -201,8 +252,13 @@ def main():
     print(f"Starting check for {TARGET_NAME} at {datetime.now()}...")
     
     current_data = fetch_data()
+    hp_data = fetch_hp_data()
     
     if current_data:
+        # Merge HP data if available
+        if hp_data:
+            current_data.update(hp_data)
+            
         last_state = load_state()
         if last_state is None:
             last_state = {}
@@ -241,10 +297,17 @@ def main():
             
             send_notification(current_data, is_update=False)
 
-        # 2. Check for Health Points Change (Separate Notification)
-        if str(current_data.get("Health Points")) != str(last_state.get("Health Points")):
-            print("Health Points change detected!")
-            send_hp_notification(current_data.get("Health Points"), last_state.get("Health Points", 0))
+        # 2. Check for HP, Status, Rank Change (Separate Notification)
+        curr_hp = str(current_data.get("currentHP", 100))
+        last_hp = str(last_state.get("currentHP", 100))
+        hp_changed = curr_hp != last_hp
+        
+        status_changed = str(current_data.get("hp_status")) != str(last_state.get("hp_status"))
+        rank_changed = str(current_data.get("hp_rank")) != str(last_state.get("hp_rank"))
+
+        if hp_changed or status_changed or rank_changed:
+            print("HP/Status/Rank change detected!")
+            send_hp_notification(current_data, last_state)
 
         # 3. Check for Stagnation (24h no progress on Vibe OR Case Study)
         last_vibe_ts = current_data.get("last_vibe_change_ts", now_ts)
