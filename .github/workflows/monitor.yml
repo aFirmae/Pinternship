@@ -28,6 +28,7 @@ jobs:
     - name: Run Monitor Script
       env:
         API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+        HP_ENDPOINT: ${{ secrets.HP_ENDPOINT }}
       run: |
         cd fun
         python monitor_progress.py
