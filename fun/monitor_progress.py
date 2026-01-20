@@ -166,7 +166,7 @@ def send_hp_notification(new_data, old_data):
              return
 
     # Construct final message
-    full_message = f"(HP Rank: #{rank})\nPrevious Rank: #{old_rank}" + "\n".join(messages)
+    full_message = f"(HP Rank: #{rank} from #{old_rank})\n" + "\n".join(messages)
     
     # Deduplicate tags
     final_tags = ",".join(list(set(tags))) if tags else "heart"
