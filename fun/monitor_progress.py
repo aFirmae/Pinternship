@@ -126,6 +126,7 @@ def send_hp_notification(new_data, old_data):
     
     # HP Rank
     rank = new_data.get("hp_rank", "N/A")
+    old_rank = old_data.get("hp_rank", "N/A")
     
     hp_diff = new_hp - old_hp
     
@@ -165,7 +166,7 @@ def send_hp_notification(new_data, old_data):
              return
 
     # Construct final message
-    full_message = f"(HP Rank: #{rank})\n" + "\n".join(messages)
+    full_message = f"(HP Rank: #{rank})\nPrevious Rank: #{old_rank}" + "\n".join(messages)
     
     # Deduplicate tags
     final_tags = ",".join(list(set(tags))) if tags else "heart"
@@ -211,7 +212,7 @@ def check_attendance_reminder(last_state):
         return False
         
     # Check time window (6 PM - 6:59 PM)
-    if now.hour != 18:
+    if now.hour < 15 or now.hour > 20:
         return False
         
     today_str = str(date.today())
