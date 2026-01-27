@@ -29,7 +29,6 @@ def fetch_data():
         
         # Navigate to dashboard list
         if isinstance(data, dict):
-            # Based on previous analysis, data is in 'dashboard' key
             records = data.get('dashboard', [])
             if not records and 'data' in data: # Fallback
                 records = data['data']
@@ -198,20 +197,13 @@ def send_stagnation_notification():
         print(f"Error sending stagnation notification: {e}")
 
 def check_attendance_reminder(last_state):
-    """
-    Checks if an attendance reminder should be sent.
-    Notification should be sent:
-    - On weekdays (Mon-Sat, i.e., 0-5)
-    - Between 6 PM and 7 PM (hour == 18)
-    - If not already sent today
-    """
     now = datetime.now()
     
-    # Sunday is 6
+    # Skip Sundays
     if now.weekday() == 6:
         return False
         
-    # Check time window (6 PM - 6:59 PM)
+    # Check time window
     if now.hour < 15 or now.hour > 20:
         return False
         
@@ -266,7 +258,6 @@ def main():
 
         # 1. Check for Progress Changes (Vibe, Case Study, Overall)
         progress_changed = False
-        # Initialize loop_vars from last_state, defaulting to current time if new
         now_ts = time.time()
         
         # Keys to monitor for main notification
@@ -298,7 +289,7 @@ def main():
             
             send_notification(current_data, is_update=False)
 
-        # 2. Check for HP, Status, Rank Change (Separate Notification)
+        # 2. Check for HP, Status, Rank Change
         curr_hp = str(current_data.get("currentHP", 100))
         last_hp = str(last_state.get("currentHP", 100))
         hp_changed = curr_hp != last_hp
