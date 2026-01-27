@@ -30,13 +30,13 @@ jobs:
         API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
         HP_ENDPOINT: ${{ secrets.HP_ENDPOINT }}
       run: |
-        cd fun
+        cd notification
         python monitor_progress.py
 
     - name: Commit and push if changed
       run: |
         git config --global user.name 'GitHub Action'
         git config --global user.email 'action@github.com'
-        git add fun/.progress_state.json
+        git add notification/.progress_state.json
         # Only commit if there are changes
         git diff --staged --quiet || (git commit -m "Update progress state" && git push)
