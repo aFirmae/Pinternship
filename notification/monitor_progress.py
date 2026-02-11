@@ -19,7 +19,7 @@ NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 # State file to store last known progress
 STATE_FILE = ".progress_state.json"
-POLL_INTERVAL_SECONDS = 600  # Check every 10 minutes
+POLL_INTERVAL_SECONDS = 3600  # Check every 60 minutes
 
 def fetch_data():
     try:
@@ -287,8 +287,6 @@ def main():
             current_data["last_vibe_change_ts"] = last_state.get("last_vibe_change_ts", now_ts)
             current_data["last_casestudy_change_ts"] = last_state.get("last_casestudy_change_ts", now_ts)
             
-            send_notification(current_data, is_update=False)
-
         # 2. Check for HP, Status, Rank Change
         curr_hp = str(current_data.get("currentHP", 100))
         last_hp = str(last_state.get("currentHP", 100))
@@ -315,7 +313,7 @@ def main():
                 case_val = float(current_data.get("Case Study Progress", 0))
                 
                 # Ignore if progress is 0 (not started) or 100 (completed)
-                if vibe_val in [0, 100] or case_val in [0, 100]:
+                if vibe_val in [0, 100] and case_val in [0, 100]:
                      pass 
                 else:
                     # Check if we already sent a stagnation warning recently
